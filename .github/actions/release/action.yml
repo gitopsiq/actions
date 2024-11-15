@@ -191,7 +191,8 @@ runs:
         RESPONSE_FORMAT: ${{ inputs.response_format }}
         SEED: ${{ inputs.seed }}
       run: |
-        if [ -n "$AZURE_OPENAI_KEY" ]; then
+        # Fixed auth logic
+        if [ -n "$AZURE_OPENAI_KEY" ] && [ "$AZURE_OPENAI_KEY" != "" ]; then
           auth_header="api-key: $AZURE_OPENAI_KEY"
         else
           token=$(az account get-access-token --resource https://cognitiveservices.azure.com/ --query accessToken -o tsv)
