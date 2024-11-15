@@ -1,0 +1,60 @@
+name: "Release Notes Regeneration"
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  regenerate-notes:
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/regenerate-notes') &&
+      github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Release Info
+        id: release
+        run: |
+          release_id=$(gh api repos/${{ github.repository }}/releases \
+            --jq '.[] | select(.draft == true) | .id' \
+            --header 'Accept: application/vnd.github+json')
+          echo "release_id=$release_id" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate New Seed
+        id: seed
+        run: |
+          new_seed=$((RANDOM % 1000000))
+          echo "seed=$new_seed" >> $GITHUB_OUTPUT
+
+      - uses: gitopsiq/actions/.github/actions/release@main
+        with:
+          azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          deployment_name: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          azure_openai_key: ${{ secrets.AZURE_OPENAI_KEY }}
+          seed: ${{ steps.seed.outputs.seed }}
+
+      - name: Update Release
+        run: |
+          release_notes=$(cat release_notes.md)
+          gh api repos/${{ github.repository }}/releases/${{ steps.release.outputs.release_id }} \
+            -X PATCH \
+            -F body="$release_notes" \
+            --header 'Accept: application/vnd.github+json'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add Comment
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+            -F body="♻️ Generated new release notes with seed: ${{ steps.seed.outputs.seed }}" \
+            --header 'Accept: application/vnd.github+json'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
