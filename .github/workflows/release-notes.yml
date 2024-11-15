@@ -22,7 +22,6 @@ jobs:
       
       - uses: gitopsiq/actions/.github/actions/release@main
         with:
-          github_token: 
           azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
           azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
           azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
