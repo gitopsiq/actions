@@ -29,9 +29,6 @@ inputs:
   azure_subscription_id:
     description: "Azure Subscription ID for OIDC federation"
     required: false
-  deployment_name:
-    description: "Azure OpenAI deployment name"
-    required: true
   api_version:
     description: "Azure OpenAI API version"
     required: false
