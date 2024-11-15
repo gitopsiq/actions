@@ -233,7 +233,6 @@ runs:
     - name: Create GitHub Release
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         RELEASE_PREFIX: ${{ inputs.release_prefix }}
       run: |
         release_body=$(cat release_notes.md | jq -Rsa .)
