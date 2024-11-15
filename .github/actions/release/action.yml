@@ -11,8 +11,12 @@ inputs:
     required: false
     default: "true"
   azure_openai_endpoint:
-    description: "Azure OpenAI endpoint"
+    description: "Azure OpenAI endpoint (required)"
     required: true
+  deployment_name:
+    description: "Azure OpenAI deployment name (optional)"
+    default: gpt-4o
+    required: false
   azure_openai_key:
     description: "Azure OpenAI key (optional if using managed identity)"
     required: false

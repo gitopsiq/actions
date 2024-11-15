@@ -4,14 +4,17 @@ on:
   push:
     branches: [ main ]
 
-    
+
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  deployments: write
-  id-token: write
-  packages: write
+  # Required permissions
+  contents: write     # For creating tags and releases
+  id-token: write    # For Azure OIDC federation
+
+  # Optional permissions depending on your needs
+  pull-requests: write  # If you want to comment on PRs
+  issues: write        # If you want to create/update issues
+  deployments: write   # For deployment tracking
+  packages: write      # If you're publishing packages
 
 jobs:
   release:
