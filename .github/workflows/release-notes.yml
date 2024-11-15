@@ -15,7 +15,6 @@ permissions:
   issues: write        # If you want to create/update issues
   deployments: write   # For deployment tracking
   packages: write      # If you're publishing packages
-  secrets: read        # If you're using secrets in your workflow
 
 jobs:
   release:
