@@ -119,8 +119,17 @@ runs:
       if: inputs.validate_version_history == 'true'
       run: |
         set -e
+        # Check if there are any tags
+        if ! git describe --tags --abbrev=0 2>/dev/null; then
+          echo "No tags found - creating first version"
+          echo "version=v0.1.0" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
         base_tag=$(git describe --tags --abbrev=0 $(git merge-base HEAD main) 2>/dev/null || echo "0.0.0")
         echo "Derived from tag: $base_tag"
+        
+        # Rest of the validation logic... 
         
         major=$(echo $base_tag | awk -F. '{print substr($1, 2)}')
         minor=$(echo $base_tag | awk -F. '{print $2}')
