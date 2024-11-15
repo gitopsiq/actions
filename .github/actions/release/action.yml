@@ -1,5 +1,5 @@
 name: "Version Bump and Release"
-description: "Bumps the version, creates a tag, and optionally creates a GitHub release"
+description: "Bumps the version, creates a tag, and optionally creates a GitHub release with AI-generated release notes"
 
 inputs:
   draft:
@@ -11,11 +11,11 @@ inputs:
     required: false
     default: "true"
   azure_openai_endpoint:
-    description: "Azure OpenAI endpoint (required)"
+    description: "Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/)"
     required: true
   deployment_name:
-    description: "Azure OpenAI deployment name (optional)"
-    default: gpt-4o
+    description: "Azure OpenAI model deployment name"
+    default: "gpt-4"
     required: false
   azure_openai_key:
     description: "Azure OpenAI key (optional if using managed identity)"
@@ -81,14 +81,26 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Validate Azure OpenAI Endpoint
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.azure_openai_endpoint }}" ]; then
+          echo "Error: azure_openai_endpoint is required"
+          exit 1
+        fi
+        if [[ "${{ inputs.azure_openai_endpoint }}" != "https://"* ]]; then
+          echo "Error: azure_openai_endpoint must start with https://"
+          exit 1
+        fi
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '23.2.0'
 
     - name: Install dependencies
-      run: npm install semver
       shell: bash
+      run: npm install semver
 
     - name: Azure login
       uses: azure/login@v1
@@ -107,74 +119,80 @@ runs:
         git config --global user.name "$GIT_USER_NAME"
         git config --global user.email "$GIT_USER_EMAIL"
 
-    - name: Get the latest tag
-      id: get_tag
-      shell: bash
-      run: |
-        latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
-        echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
-
     - name: Validate and Determine New Version
-      id: validate_version
+      id: version
       shell: bash
       if: inputs.validate_version_history == 'true'
       run: |
         set -e
+        
+        # Function to get latest tag or return default
+        get_latest_tag() {
+          git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0"
+        }
+        
+        # Check for first tag
         if ! git describe --tags --abbrev=0 2>/dev/null; then
           echo "No tags found - creating first version"
-          new_tag="v0.1.0"
-          echo "version=$new_tag" >> $GITHUB_OUTPUT
+          echo "version=v0.1.0" >> $GITHUB_OUTPUT
           exit 0
         fi
 
-        base_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+        # Get current state
+        base_tag=$(get_latest_tag)
         echo "Derived from tag: $base_tag"
         
+        # Parse version components
         major=$(echo $base_tag | awk -F. '{print substr($1, 2)}')
         minor=$(echo $base_tag | awk -F. '{print $2}')
         patch=$(echo $base_tag | awk -F. '{print $3}')
         
+        # Get latest tags
         latest_patch_tag=$(git tag --sort=-v:refname | grep "^v$major.$minor." | head -n 1 || echo "")
         latest_minor_tag=$(git tag --sort=-v:refname | grep "^v$major." | head -n 1 || echo "")
         latest_tag=$(git tag --sort=-v:refname | head -n 1 || echo "")
         
+        # Determine bump type from commit message
         commit_message=$(echo "${{ github.event.head_commit.message }}" | tr '[:upper:]' '[:lower:]')
-        if [[ "$commit_message" == *"feat"* || "$commit_message" == *"minor"* ]]; then
-          bump_type="minor"
-        elif [[ "$commit_message" == *"fix"* || "$commit_message" == *"patch"* ]]; then
-          bump_type="patch"
-        elif [[ "$commit_message" == *"breaking change"* || "$commit_message" == *"major"* ]]; then
+        if [[ "$commit_message" == *"breaking change"* || "$commit_message" == *"major"* ]]; then
           bump_type="major"
+        elif [[ "$commit_message" == *"feat"* || "$commit_message" == *"minor"* ]]; then
+          bump_type="minor"
         else
           bump_type="patch"
         fi
         
+        echo "Bump type determined: $bump_type"
+        
+        # Validate version history
         if [[ "$bump_type" == "patch" && -n "$latest_patch_tag" && "$base_tag" != "$latest_patch_tag" ]]; then
-          echo "Error: HEAD is not derived from the latest patch tag ($latest_patch_tag)."
+          echo "Error: HEAD is not derived from the latest patch tag ($latest_patch_tag)"
           exit 1
         elif [[ "$bump_type" == "minor" && -n "$latest_minor_tag" && "$base_tag" != "$latest_minor_tag" ]]; then
-          echo "Error: HEAD is not derived from the latest minor tag ($latest_minor_tag)."
+          echo "Error: HEAD is not derived from the latest minor tag ($latest_minor_tag)"
           exit 1
         elif [[ "$bump_type" == "major" && -n "$latest_tag" && "$base_tag" != "$latest_tag" ]]; then
-          echo "Error: HEAD is not derived from the latest tag ($latest_tag)."
+          echo "Error: HEAD is not derived from the latest tag ($latest_tag)"
           exit 1
         fi
         
-        if [[ "$bump_type" == "patch" ]]; then
-          new_tag="v$major.$minor.$((patch + 1))"
+        # Calculate new version
+        if [[ "$bump_type" == "major" ]]; then
+          new_tag="v$((major + 1)).0.0"
         elif [[ "$bump_type" == "minor" ]]; then
           new_tag="v$major.$((minor + 1)).0"
-        elif [[ "$bump_type" == "major" ]]; then
-          new_tag="v$((major + 1)).0.0"
+        else
+          new_tag="v$major.$minor.$((patch + 1))"
         fi
         
         echo "version=$new_tag" >> $GITHUB_OUTPUT
+
     - name: Tag new version
       shell: bash
       run: |
         set -e
-        git tag -a "${{ steps.validate_version.outputs.version }}" -m "Release ${{ steps.validate_version.outputs.version }}"
-        git push origin "${{ steps.validate_version.outputs.version }}"
+        git tag -a "${{ steps.version.outputs.version }}" -m "Release ${{ steps.version.outputs.version }}"
+        git push origin "${{ steps.version.outputs.version }}"
 
     - name: Generate Release Notes
       id: release_notes
@@ -192,18 +210,33 @@ runs:
         RESPONSE_FORMAT: ${{ inputs.response_format }}
         SEED: ${{ inputs.seed }}
       run: |
-        # Fixed auth logic
+        # Debug information
+        echo "Debug: Checking configuration"
+        echo "Endpoint: ${AZURE_OPENAI_ENDPOINT}"
+        echo "Deployment: ${DEPLOYMENT_NAME}"
+        echo "API Version: ${API_VERSION}"
+
+        # Authentication
         if [ -n "$AZURE_OPENAI_KEY" ] && [ "$AZURE_OPENAI_KEY" != "" ]; then
+          echo "Debug: Using API key authentication"
           auth_header="api-key: $AZURE_OPENAI_KEY"
         else
+          echo "Debug: Using managed identity authentication"
           token=$(az account get-access-token --resource https://cognitiveservices.azure.com/ --query accessToken -o tsv)
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to get Azure token"
+            exit 1
+          fi
           auth_header="Authorization: Bearer $token"
         fi
 
+        # Prepare release data
+        echo "Debug: Gathering git information"
         git_diff=$(git diff $(git describe --tags --abbrev=0)..HEAD)
         commit_messages=$(git log $(git describe --tags --abbrev=0)..HEAD --oneline)
         pr_titles=$(git log $(git describe --tags --abbrev=0)..HEAD --pretty=format:"%s" --grep "Merge pull request")
 
+        # Prepare request body
         request_body="{
           \"messages\": [
             {
@@ -231,26 +264,66 @@ runs:
 
         request_body="$request_body }"
 
-        curl -s -X POST "$AZURE_OPENAI_ENDPOINT/openai/deployments/$DEPLOYMENT_NAME/chat/completions?api-version=$API_VERSION" \
-        -H "Content-Type: application/json" \
-        -H "$auth_header" \
-        -d "$request_body" > release_notes.json
+        echo "Debug: Making API request"
+        curl -v -s -X POST "$AZURE_OPENAI_ENDPOINT/openai/deployments/$DEPLOYMENT_NAME/chat/completions?api-version=$API_VERSION" \
+          -H "Content-Type: application/json" \
+          -H "$auth_header" \
+          -d "$request_body" > release_notes.json 2>curl_error.log
 
-        cat release_notes.json | jq -r '.choices[0].messages[0].content' > release_notes.md
+        if [ $? -ne 0 ]; then
+          echo "Error: Curl request failed"
+          echo "Curl error output:"
+          cat curl_error.log
+          echo "Response if any:"
+          cat release_notes.json
+          exit 1
+        fi
+
+        # Validate response
+        if ! jq -e . >/dev/null 2>&1 <<<"$(cat release_notes.json)"; then
+          echo "Error: Invalid JSON response"
+          echo "Response content:"
+          cat release_notes.json
+          exit 1
+        fi
+
+        echo "Debug: Extracting release notes content"
+        if ! jq -r '.choices[0].messages[0].content' release_notes.json > release_notes.md; then
+          echo "Error: Failed to extract content from response"
+          echo "Response content:"
+          cat release_notes.json
+          exit 1
+        fi
 
     - name: Create GitHub Release
       shell: bash
       env:
+        GITHUB_TOKEN: ${{ github.token }}
         RELEASE_PREFIX: ${{ inputs.release_prefix }}
       run: |
+        echo "Debug: Creating GitHub release"
+        if [ ! -f release_notes.md ]; then
+          echo "Error: release_notes.md file not found"
+          exit 1
+        fi
+
         release_body=$(cat release_notes.md | jq -Rsa .)
-        curl -s -X POST "https://api.github.com/repos/${{ github.repository }}/releases" \
-        -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{
-          \"tag_name\": \"${{ steps.validate_version.outputs.version }}\",
-          \"name\": \"$RELEASE_PREFIX ${{ steps.validate_version.outputs.version }}\",
-          \"body\": $release_body,
-          \"draft\": ${{ inputs.draft }},
-          \"prerelease\": ${{ inputs.prerelease }}
-        }"
+        response=$(curl -s -X POST "https://api.github.com/repos/${{ github.repository }}/releases" \
+          -H "Authorization: token $GITHUB_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"tag_name\": \"${{ steps.version.outputs.version }}\",
+            \"name\": \"$RELEASE_PREFIX ${{ steps.version.outputs.version }}\",
+            \"body\": $release_body,
+            \"draft\": ${{ inputs.draft }},
+            \"prerelease\": ${{ inputs.prerelease }}
+          }")
+
+        if ! jq -e .id >/dev/null 2>&1 <<<"$response"; then
+          echo "Error: Failed to create release"
+          echo "Response:"
+          echo "$response" | jq .
+          exit 1
+        fi
+
+        echo "Success: Release created"
