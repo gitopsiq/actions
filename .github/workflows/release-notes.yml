@@ -4,6 +4,14 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  deployments: write
+  id-token: write
+  packages: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
